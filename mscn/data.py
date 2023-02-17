@@ -1,4 +1,6 @@
 import csv
+import pickle
+
 import torch
 from torch.utils.data import dataset
 
@@ -56,7 +58,8 @@ def load_data(file_name, num_materialized_samples):
 
 
 def load_and_encode_train_data(num_queries, num_materialized_samples):
-    file_name_queries = "data/train"
+    # file_name_queries = "data/train"
+    file_name_queries = 'data/c2e_train'
     file_name_column_min_max_vals = "data/column_min_max_vals.csv"
 
     joins, predicates, tables, samples, label = load_data(file_name_queries, num_materialized_samples)
@@ -116,6 +119,25 @@ def load_and_encode_train_data(num_queries, num_materialized_samples):
     dicts = [table2vec, column2vec, op2vec, join2vec]
     train_data = [samples_train, predicates_train, joins_train]
     test_data = [samples_test, predicates_test, joins_test]
+
+    # with open('column_min_max_vals', 'wb') as f:
+    #     pickle.dump(column_min_max_vals, f)
+    #
+    # with open('column2vec', 'wb') as f:
+    #     pickle.dump(column2vec, f)
+    #
+    # with open('op2vec', 'wb') as f:
+    #     pickle.dump(op2vec, f)
+    #
+    # with open('join2vec', 'wb') as f:
+    #     pickle.dump(join2vec, f)
+    #
+    # with open('min_val', 'wb') as f:
+    #     pickle.dump(min_val, f)
+    #
+    # with open('max_val', 'wb') as f:
+    #     pickle.dump(max_val, f)
+
     return dicts, column_min_max_vals, min_val, max_val, labels_train, labels_test, max_num_joins, max_num_predicates, train_data, test_data
 
 
@@ -124,18 +146,18 @@ def make_dataset(samples, predicates, joins, labels, max_num_joins, max_num_pred
 
     sample_masks = []
     sample_tensors = []
-    for sample in samples:
-        sample_tensor = np.vstack(sample)
-        num_pad = max_num_joins + 1 - sample_tensor.shape[0]
-        sample_mask = np.ones_like(sample_tensor).mean(1, keepdims=True)
-        sample_tensor = np.pad(sample_tensor, ((0, num_pad), (0, 0)), 'constant')
-        sample_mask = np.pad(sample_mask, ((0, num_pad), (0, 0)), 'constant')
-        sample_tensors.append(np.expand_dims(sample_tensor, 0))
-        sample_masks.append(np.expand_dims(sample_mask, 0))
-    sample_tensors = np.vstack(sample_tensors)
-    sample_tensors = torch.FloatTensor(sample_tensors)
-    sample_masks = np.vstack(sample_masks)
-    sample_masks = torch.FloatTensor(sample_masks)
+    # for sample in samples:
+    #     sample_tensor = np.vstack(sample)
+    #     num_pad = max_num_joins + 1 - sample_tensor.shape[0]
+    #     sample_mask = np.ones_like(sample_tensor).mean(1, keepdims=True)
+    #     sample_tensor = np.pad(sample_tensor, ((0, num_pad), (0, 0)), 'constant')
+    #     sample_mask = np.pad(sample_mask, ((0, num_pad), (0, 0)), 'constant')
+    #     sample_tensors.append(np.expand_dims(sample_tensor, 0))
+    #     sample_masks.append(np.expand_dims(sample_mask, 0))
+    # sample_tensors = np.vstack(sample_tensors)
+    # sample_tensors = torch.FloatTensor(sample_tensors)
+    # sample_masks = np.vstack(sample_masks)
+    # sample_masks = torch.FloatTensor(sample_masks)
 
     predicate_masks = []
     predicate_tensors = []

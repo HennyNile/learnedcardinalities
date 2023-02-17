@@ -1,4 +1,5 @@
 import argparse
+import pickle
 import time
 import os
 
@@ -36,22 +37,32 @@ def predict(model, data_loader, cuda):
     model.eval()
     for batch_idx, data_batch in enumerate(data_loader):
 
-        samples, predicates, joins, targets, sample_masks, predicate_masks, join_masks = data_batch
+        # samples, predicates, joins, targets, sample_masks, predicate_masks, join_masks = data_batch
+        predicates, joins, targets, predicate_masks, join_masks = data_batch
 
+        # if cuda:
+        #     samples, predicates, joins, targets = samples.cuda(), predicates.cuda(), joins.cuda(), targets.cuda()
+        #     sample_masks, predicate_masks, join_masks = sample_masks.cuda(), predicate_masks.cuda(), join_masks.cuda()
+        # samples, predicates, joins, targets = Variable(samples), Variable(predicates), Variable(joins), Variable(
+        #     targets)
+        # sample_masks, predicate_masks, join_masks = Variable(sample_masks), Variable(predicate_masks), Variable(
+        #     join_masks)
         if cuda:
-            samples, predicates, joins, targets = samples.cuda(), predicates.cuda(), joins.cuda(), targets.cuda()
-            sample_masks, predicate_masks, join_masks = sample_masks.cuda(), predicate_masks.cuda(), join_masks.cuda()
-        samples, predicates, joins, targets = Variable(samples), Variable(predicates), Variable(joins), Variable(
-            targets)
-        sample_masks, predicate_masks, join_masks = Variable(sample_masks), Variable(predicate_masks), Variable(
-            join_masks)
+            predicates, joins, targets = predicates.cuda(), joins.cuda(), targets.cuda()
+            predicate_masks, join_masks = predicate_masks.cuda(), join_masks.cuda()
+        predicates, joins, targets = Variable(predicates), Variable(joins), Variable(targets)
+        predicate_masks, join_masks = Variable(predicate_masks), Variable(join_masks)
 
         t = time.time()
-        outputs = model(samples, predicates, joins, sample_masks, predicate_masks, join_masks)
+        # outputs = model(samples, predicates, joins, sample_masks, predicate_masks, join_masks)
+        if cuda:
+            outputs = model(predicates, joins, predicate_masks, join_masks).to('cpu')
+        else:
+            outputs = model(predicates, joins, predicate_masks, join_masks)
         t_total += time.time() - t
 
         for i in range(outputs.data.shape[0]):
-            preds.append(outputs.data[i])
+            preds.append(outputs.data[i][0])
 
     return preds, t_total
 
@@ -72,7 +83,7 @@ def print_qerror(preds_unnorm, labels_unnorm):
     print("Mean: {}".format(np.mean(qerror)))
 
 
-def train_and_predict(workload_name, num_queries, num_epochs, batch_size, hid_units, cuda):
+def train_and_predict(workload_name, num_queries, num_epochs, batch_size, hid_units, cuda, load_model, model_filepath):
     # Load training and validation data
     num_materialized_samples = 1000
     dicts, column_min_max_vals, min_val, max_val, labels_train, labels_test, max_num_joins, max_num_predicates, train_data, test_data = get_train_datasets(
@@ -84,7 +95,11 @@ def train_and_predict(workload_name, num_queries, num_epochs, batch_size, hid_un
     predicate_feats = len(column2vec) + len(op2vec) + 1
     join_feats = len(join2vec)
 
-    model = SetConv(sample_feats, predicate_feats, join_feats, hid_units)
+    if load_model:
+        with open(model_filepath, 'rb') as f:
+            model = pickle.load(f)
+    else:
+        model = SetConv(predicate_feats, join_feats, hid_units)
 
     optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
 
@@ -100,24 +115,35 @@ def train_and_predict(workload_name, num_queries, num_epochs, batch_size, hid_un
 
         for batch_idx, data_batch in enumerate(train_data_loader):
 
-            samples, predicates, joins, targets, sample_masks, predicate_masks, join_masks = data_batch
+            predicates, joins, targets, predicate_masks, join_masks = data_batch
+            # samples, predicates, joins, targets, sample_masks, predicate_masks, join_masks = data_batch
 
             if cuda:
-                samples, predicates, joins, targets = samples.cuda(), predicates.cuda(), joins.cuda(), targets.cuda()
-                sample_masks, predicate_masks, join_masks = sample_masks.cuda(), predicate_masks.cuda(), join_masks.cuda()
-            samples, predicates, joins, targets = Variable(samples), Variable(predicates), Variable(joins), Variable(
+                predicates, joins, targets = predicates.cuda(), joins.cuda(), targets.cuda()
+                predicate_masks, join_masks = predicate_masks.cuda(), join_masks.cuda()
+                # samples, predicates, joins, targets = samples.cuda(), predicates.cuda(), joins.cuda(), targets.cuda()
+                # sample_masks, predicate_masks, join_masks = sample_masks.cuda(), predicate_masks.cuda(), join_masks.cuda()
+            predicates, joins, targets = Variable(predicates), Variable(joins), Variable(
                 targets)
-            sample_masks, predicate_masks, join_masks = Variable(sample_masks), Variable(predicate_masks), Variable(
+            predicate_masks, join_masks = Variable(predicate_masks), Variable(
                 join_masks)
+            # samples, predicates, joins, targets = Variable(samples), Variable(predicates), Variable(joins), Variable(
+            #     targets)
+            # sample_masks, predicate_masks, join_masks = Variable(sample_masks), Variable(predicate_masks), Variable(
+            #     join_masks)
 
             optimizer.zero_grad()
-            outputs = model(samples, predicates, joins, sample_masks, predicate_masks, join_masks)
+            outputs = model(predicates, joins, predicate_masks, join_masks)
             loss = qerror_loss(outputs, targets.float(), min_val, max_val)
             loss_total += loss.item()
             loss.backward()
             optimizer.step()
 
         print("Epoch {}, loss: {}".format(epoch, loss_total / len(train_data_loader)))
+
+    # if load_model:
+    with open(model_filepath, 'wb') as f:
+        pickle.dump(model.to('cpu'), f)
 
     # Get final training and validation set predictions
     preds_train, t_total = predict(model, train_data_loader, cuda)
@@ -146,7 +172,8 @@ def train_and_predict(workload_name, num_queries, num_epochs, batch_size, hid_un
     joins, predicates, tables, samples, label = load_data(file_name, num_materialized_samples)
 
     # Get feature encoding and proper normalization
-    samples_test = encode_samples(tables, samples, table2vec)
+    # samples_test = encode_samples(tables, samples, table2vec)
+    samples_test = []
     predicates_test, joins_test = encode_data(predicates, joins, column_min_max_vals, column2vec, op2vec, join2vec)
     labels_test, _, _ = normalize_labels(label, min_val, max_val)
 
@@ -177,6 +204,61 @@ def train_and_predict(workload_name, num_queries, num_epochs, batch_size, hid_un
             f.write(str(preds_test_unnorm[i]) + "," + label[i] + "\n")
 
 
+def c2e_predict():
+    batch_size = 1024
+    cuda = True
+
+    # load model and variables
+    with open('model_1', 'rb') as f:
+        model = pickle.load(f)
+    with open('column_min_max_vals', 'rb') as f:
+        column_min_max_vals = pickle.load(f)
+    with open('column2vec', 'rb') as f:
+        column2vec = pickle.load(f)
+    with open('op2vec', 'rb') as f:
+        op2vec = pickle.load(f)
+    with open('join2vec', 'rb') as f:
+        join2vec = pickle.load(f)
+    with open('min_val', 'rb') as f:
+        min_val = pickle.load(f)
+    with open('max_val', 'rb') as f:
+        max_val = pickle.load(f)
+
+    # Load test data
+    file_name = "workloads/c2e"
+    num_materialized_samples = 0
+    joins, predicates, tables, samples, label = load_data(file_name, num_materialized_samples)
+
+    # Get feature encoding and proper normalization
+    samples_test = []
+    predicates_test, joins_test = encode_data(predicates, joins, column_min_max_vals, column2vec, op2vec, join2vec)
+    labels_test, _, _ = normalize_labels(label, min_val, max_val)
+    print("Number of test samples: {}".format(len(labels_test)))
+
+    max_num_predicates = max([len(p) for p in predicates_test])
+    max_num_joins = max([len(j) for j in joins_test])
+
+    # Get test set predictions
+    test_data = make_dataset(samples_test, predicates_test, joins_test, labels_test, max_num_joins, max_num_predicates)
+    test_data_loader = DataLoader(test_data, batch_size=batch_size)
+
+    preds_test, t_total = predict(model, test_data_loader, cuda)
+    print("Prediction time per test sample: {}".format(t_total / len(labels_test) * 1000))
+
+    # Unnormalize
+    preds_test_unnorm = unnormalize_labels(preds_test, min_val, max_val)
+
+    # Print metrics
+    print("\nQ-Error " + ":")
+    print_qerror(preds_test_unnorm, label)
+
+    # Write predictions
+    file_name = "../mscn_est_cards.txt"
+    os.makedirs(os.path.dirname(file_name), exist_ok=True)
+    with open(file_name, "w") as f:
+        for i in range(len(preds_test_unnorm)):
+            f.write(str(preds_test_unnorm[i]) + "\n")
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("testset", help="synthetic, scale, or job-light")
@@ -185,9 +267,13 @@ def main():
     parser.add_argument("--batch", help="batch size (default: 1024)", type=int, default=1024)
     parser.add_argument("--hid", help="number of hidden units (default: 256)", type=int, default=256)
     parser.add_argument("--cuda", help="use CUDA", action="store_true")
+    parser.add_argument("--loadmodel", help="whether load local model", action="store_true")
+    parser.add_argument("--modelfilepath", help='path of file storing model')
     args = parser.parse_args()
-    train_and_predict(args.testset, args.queries, args.epochs, args.batch, args.hid, args.cuda)
+    train_and_predict(args.testset, args.queries, args.epochs, args.batch, args.hid, args.cuda, args.loadmodel,
+                      args.modelfilepath)
 
 
 if __name__ == "__main__":
-    main()
+    # main()
+    c2e_predict()
