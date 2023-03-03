@@ -101,10 +101,10 @@ def train_and_predict(workload_name, num_queries, num_epochs, batch_size, hid_un
     else:
         model = SetConv(predicate_feats, join_feats, hid_units)
 
-    optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
-
     if cuda:
-        model.cuda()
+        model = model.to('cuda:0')
+
+    optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
 
     train_data_loader = DataLoader(train_data, batch_size=batch_size)
     test_data_loader = DataLoader(test_data, batch_size=batch_size)
@@ -141,9 +141,9 @@ def train_and_predict(workload_name, num_queries, num_epochs, batch_size, hid_un
 
         print("Epoch {}, loss: {}".format(epoch, loss_total / len(train_data_loader)))
 
-    # if load_model:
     with open(model_filepath, 'wb') as f:
         pickle.dump(model.to('cpu'), f)
+        model.to('cuda:0')
 
     # Get final training and validation set predictions
     preds_train, t_total = predict(model, train_data_loader, cuda)
@@ -209,8 +209,10 @@ def c2e_predict():
     cuda = True
 
     # load model and variables
-    with open('model_1', 'rb') as f:
+    with open('full_model_1', 'rb') as f:
         model = pickle.load(f)
+        if cuda:
+            model.cuda()
     with open('column_min_max_vals', 'rb') as f:
         column_min_max_vals = pickle.load(f)
     with open('column2vec', 'rb') as f:
@@ -258,6 +260,7 @@ def c2e_predict():
     with open(file_name, "w") as f:
         for i in range(len(preds_test_unnorm)):
             f.write(str(preds_test_unnorm[i]) + "\n")
+
 
 def main():
     parser = argparse.ArgumentParser()
